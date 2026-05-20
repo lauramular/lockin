@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>My Planner 🌸</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#d63384">
+  <meta name="mobile-web-app-capable" content="yes">
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="My Planner">
+  <link rel="apple-touch-icon" href="icon.svg">
+
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow-x: hidden; }
+    body { background: #fff0f7; padding-bottom: env(safe-area-inset-bottom); }
+    input, select, button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
+    /* prevent iOS zoom on input focus */
+    input, select, textarea { font-size: 16px !important; }
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/sw.js').catch(function(){});
+      });
+    }
+  </script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const C = {
+      bg: "linear-gradient(160deg,#fff0f7 0%,#fde8f0 35%,#f8d7ea 70%,#eedaf5 100%)",
+      card: "rgba(255,255,255,0.82)",
+      rose: "#d63384", roseMid:"#e8609a", roseLight:"#f4a0c4",
+      blush:"#fde8f0", lilac:"#c77dde", lilacLight:"#eedaf5", mauve:"#9c3fbf",
+      text:"#2d1020", textMid:"#6b2d4a", textMuted:"#b07898",
+      border:"rgba(214,51,132,0.13)", gold:"#f0a500", mint:"#7ecec4", green:"#5ec47e",
+      shadow:"0 4px 24px rgba(214,51,132,0.10)", shadowSm:"0 2px 12px rgba(214,51,132,0.08)",
+    };
+
+    const TABS=[
+      {id:"today",label:"✨ Today"},{id:"study",label:"📚 Study"},
+      {id:"future",label:"🌸 Future"},{id:"notes",label:"💭 Notes"},
+      {id:"shop",label:"🛍️ Shop"},{id:"cal",label:"🗓 Cal"},{id:"ai",label:"🤍 AI"},
+    ];
+
+    const FULL_DAYS=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    const SHORT_DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const DAY_EMOJIS=["🌸","💪","✨","🌿","💅","🎉","😴"];
+    const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+    const WDAYS=["Su","Mo","Tu","We","Th","Fr","Sa"];
+
+    function calDays(y,m){const f=new Date(y,m,1).getDay(),t=new Date(y,m+1,0).getDate(),a=[];for(let i=0;i<f;i++)a.push(null);for(let d=1;d<=t;d++)a.push(d);return a;}
+
+    function dateKey(offsetDays){
+      offsetDays = offsetDays || 0;
+      const d=new Date(); d.setDate(d.getDate()+offsetDays);
+      return d.toISOString().slice(0,10);
+    }
+    function offsetLabel(offset){
+      if(offset===0)return"Today";
+      if(offset===1)return"Tomorrow";
+      if(offset===-1)return"Yesterday";
+      return SHORT_DAYS[new Date(dateKey(offset)).getDay()];
+    }
+    function offsetDate(offset){
+      const d=new Date(); d.setDate(d.getDate()+offset);
+      return d;
+    }
+
+    const SHOP_CATS={clothing:{label:"Clothing 👗",emoji:"👗",color:C.rose},house:{label:"House 🏡",emoji:"🏡",color:C.lilac},beauty:{label:"Beauty 💄",emoji:"💄",color:C.roseMid},food:{label:"Food 🛒",emoji:"🛒",color:C.mint},other:{label:"Other ✨",emoji:"✨",color:C.gold}};
+    const SHOP_PRIO={now:{label:"Need Now 🔥",color:C.rose},soon:{label:"Soon 🌸",color:C.lilac},someday:{label:"Someday 💭",color:C.textMuted}};
+    const SHOPS=["H&M","Zara","IKEA","Pepco","Rossmann","Allegro","Other"];
+    const catColor=c=>({travel:C.rose,career:C.lilac,hobby:C.gold,health:C.mint,finance:"#ffb74d",other:C.roseLight}[c]||C.roseLight);
+
+    const D_DAY_TASKS = {};
+    const D_STUDY=[{id:1,subject:"Math",topic:"Chapter 5 – Integrals",done:false,duration:60},{id:2,subject:"English",topic:"Essay outline draft",done:false,duration:45},{id:3,subject:"Chem",topic:"Review flashcards",done:true,duration:30}];
+    const D_FUTURE=[{id:1,dream:"Travel to Paris 🗼",category:"travel",note:"Spring 2026"},{id:2,dream:"Start my own business 💅",category:"career",note:"Research ideas"},{id:3,dream:"Learn piano 🎹",category:"hobby",note:"Find a teacher"}];
+    const D_NOTES=[{id:1,text:"Call mom back!",time:"9:12 AM"},{id:2,text:"Oat milk + strawberries for smoothie 🍓",time:"11:30 AM"},{id:3,text:"Book Sarah mentioned — The Midnight Library",time:"2:05 PM"}];
+    const D_SHOP=[
+      {id:1,name:"Cotton tops",category:"clothing",priority:"now",done:false,note:"",qty:3,shop:""},
+      {id:2,name:"T-shirts",category:"clothing",priority:"now",done:false,note:"",qty:2,shop:""},
+      {id:3,name:"Organizers",category:"house",priority:"now",done:false,note:"",qty:1,shop:"IKEA"},
+      {id:4,name:"Pictures / wall decor",category:"house",priority:"now",done:false,note:"",qty:0,shop:""},
+      {id:5,name:"Printed photos (own)",category:"house",priority:"now",done:false,note:"Print from phone 📸",qty:0,shop:""},
+      {id:6,name:"Markers",category:"house",priority:"now",done:false,note:"",qty:0,shop:""},
+      {id:7,name:"Glass (drinking)",category:"house",priority:"now",done:false,note:"",qty:4,shop:""},
+      {id:8,name:"Glass food boxes",category:"house",priority:"now",done:false,note:"",qty:0,shop:"IKEA"},
+      {id:9,name:"Zapach łazienka",category:"house",priority:"now",done:false,note:"",qty:0,shop:"Rossmann"},
+      {id:10,name:"Prysznic zasłony",category:"house",priority:"now",done:false,note:"",qty:0,shop:""},
+    ];
+
+    const KEYS={dayTasks:"pp-day-tasks",study:"pp-study",future:"pp-future",notes:"pp-notes",shop:"pp-shop"};
+    async function load(key, fallback){try{const r=localStorage.getItem(key);return r?JSON.parse(r):fallback;}catch{return fallback;}}
+    async function save(key, val){try{localStorage.setItem(key,JSON.stringify(val));}catch{}}
+
+    function FocusTimer(){
+      const[secs,setSecs]=useState(25*60);const[run,setRun]=useState(false);const[mode,setMode]=useState("focus");
+      useEffect(()=>{if(!run)return;const t=setInterval(()=>setSecs(s=>{if(s<=1){setRun(false);return 0;}return s-1;}),1000);return()=>clearInterval(t);},[run]);
+      const total=mode==="focus"?25*60:5*60,pct=((total-secs)/total)*100;
+      return(<div style={{textAlign:"center"}}>
+        <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:14}}>
+          {[["focus","🍅 Focus",25*60],["break","🌸 Break",5*60]].map(([m,l,t])=>(
+            <button key={m} onClick={()=>{setMode(m);setSecs(t);setRun(false);}} style={{padding:"5px 16px",borderRadius:20,border:"none",cursor:"pointer",background:mode===m?`linear-gradient(135deg,${C.rose},${C.lilac})`:C.blush,color:mode===m?"white":C.textMuted,fontSize:12,fontWeight:700}}>{l}</button>
+          ))}
+        </div>
+        <div style={{width:104,height:104,borderRadius:"50%",margin:"0 auto 14px",background:`conic-gradient(${C.rose} ${pct*3.6}deg,${C.blush} 0deg)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 20px ${C.roseLight}`}}>
+          <div style={{width:82,height:82,borderRadius:"50%",background:"white",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:700,color:C.rose}}>
+            {`${String(Math.floor(secs/60)).padStart(2,"0")}:${String(secs%60).padStart(2,"0")}`}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+          <button onClick={()=>setRun(r=>!r)} style={{padding:"8px 22px",borderRadius:20,border:"none",cursor:"pointer",background:`linear-gradient(135deg,${C.rose},${C.lilac})`,color:"white",fontWeight:700,fontSize:13,boxShadow:`0 3px 12px ${C.roseLight}`}}>{run?"⏸ Pause":"▶ Start"}</button>
+          <button onClick={()=>{setSecs(total);setRun(false);}} style={{padding:"8px 14px",borderRadius:20,border:`1px solid ${C.border}`,background:"white",color:C.textMuted,cursor:"pointer",fontSize:13}}>↺</button>
+        </div>
+      </div>);
+    }
+
+    function App(){
+      const[tab,setTab]=useState("today");
+      const[time,setTime]=useState(new Date());
+      const[ready,setReady]=useState(false);
+      const[dayTasks,setDayTasksRaw]=useState({});
+      const[study,setStudyRaw]=useState([]);
+      const[future,setFutureRaw]=useState([]);
+      const[notes,setNotesRaw]=useState([]);
+      const[shop,setShopRaw]=useState([]);
+      const[apiKey,setApiKey]=useState(()=>localStorage.getItem('pp-apikey')||'');
+      const[apiKeyInput,setApiKeyInput]=useState('');
+
+      const mkSet=(setter,key)=>val=>setter(prev=>{const next=typeof val==="function"?val(prev):val;save(key,next);return next;});
+      const setDayTasks=mkSet(setDayTasksRaw,KEYS.dayTasks);
+      const setStudy=mkSet(setStudyRaw,KEYS.study);
+      const setFuture=mkSet(setFutureRaw,KEYS.future);
+      const setNotes=mkSet(setNotesRaw,KEYS.notes);
+      const setShop=mkSet(setShopRaw,KEYS.shop);
+
+      useEffect(()=>{
+        Promise.all([load(KEYS.dayTasks,D_DAY_TASKS),load(KEYS.study,D_STUDY),load(KEYS.future,D_FUTURE),load(KEYS.notes,D_NOTES),load(KEYS.shop,D_SHOP)])
+          .then(([dt,s,f,n,sh])=>{setDayTasksRaw(dt);setStudyRaw(s);setFutureRaw(f);setNotesRaw(n);setShopRaw(sh);setReady(true);});
+      },[]);
+      useEffect(()=>{const t=setInterval(()=>setTime(new Date()),1000);return()=>clearInterval(t);},[]);
+
+      const chatEnd=useRef(null);
+      const[msgs,setMsgs]=useState([{role:"assistant",text:"Hey gorgeous! 💕 I'm your AI bestie. Ask me anything — planning, studying, manifesting dreams, or just chatting!"}]);
+      const[chatInp,setChatInp]=useState("");
+      const[chatLoad,setChatLoad]=useState(false);
+      useEffect(()=>{chatEnd.current?.scrollIntoView({behavior:"smooth"});},[msgs]);
+
+      const[newTaskInputs,setNewTaskInputs]=useState({});
+      const[expandedDays,setExpandedDays]=useState({[dateKey(0)]:true,[dateKey(1)]:true});
+
+      const[newStudy,setNewStudy]=useState({subject:"",topic:"",duration:30});
+      const[addStudy,setAddStudy]=useState(false);
+      const[newDream,setNewDream]=useState({dream:"",category:"other",note:""});
+      const[addDream,setAddDream]=useState(false);
+      const[newNote,setNewNote]=useState("");
+      const[newShop,setNewShop]=useState({name:"",category:"house",priority:"now",note:"",qty:1,shop:""});
+      const[addShop,setAddShop]=useState(false);
+      const[shopFilter,setShopFilter]=useState("all");
+      const[shopPrio,setShopPrio]=useState("all");
+      const[shopSearch,setShopSearch]=useState("");
+      const[showDone,setShowDone]=useState(true);
+      const[calDate,setCalDate]=useState(new Date());
+      const[selDay,setSelDay]=useState(new Date().getDate());
+      const[confetti,setConfetti]=useState([]);
+
+      const today=new Date();
+      const isToday=d=>d===today.getDate()&&calDate.getMonth()===today.getMonth()&&calDate.getFullYear()===today.getFullYear();
+
+      const pop=()=>{
+        const dots=Array.from({length:16},(_,i)=>({id:Date.now()+i,x:20+Math.random()*60,y:20+Math.random()*60,color:[C.rose,C.lilac,C.gold,C.roseLight,C.mint][i%5],size:5+Math.random()*8}));
+        setConfetti(dots);setTimeout(()=>setConfetti([]),1200);
+      };
+
+      const getTasksForKey=k=>dayTasks[k]||[];
+      const addTaskForKey=(k,text)=>{
+        if(!text.trim())return;
+        setDayTasks(prev=>({...prev,[k]:[...(prev[k]||[]),{id:Date.now(),text,done:false}]}));
+      };
+      const toggleTaskForKey=(k,id)=>{
+        setDayTasks(prev=>{
+          const tasks=(prev[k]||[]).map(t=>{if(t.id!==id)return t;if(!t.done)pop();return{...t,done:!t.done};});
+          return{...prev,[k]:tasks};
+        });
+      };
+      const deleteTaskForKey=(k,id)=>setDayTasks(prev=>({...prev,[k]:(prev[k]||[]).filter(t=>t.id!==id)}));
+
+      const sendChat=async()=>{
+        if(!chatInp.trim()||chatLoad||!apiKey)return;
+        const msg=chatInp;setChatInp("");setMsgs(m=>[...m,{role:"user",text:msg}]);setChatLoad(true);
+        try{
+          const todayTasks=getTasksForKey(dateKey(0)).map(t=>t.text).join(", ");
+          const sys=`You are a warm, bubbly, supportive personal AI assistant for a young woman's planner app. Use emojis. Her tasks today: ${todayTasks}. Her study: ${study.map(s=>s.subject+" - "+s.topic).join(", ")}. Her dreams: ${future.map(f=>f.dream).join(", ")}.`;
+          const history=msgs.filter(m=>m.role==="user").map(m=>({role:"user",content:m.text}));
+          const res=await fetch("https://api.anthropic.com/v1/messages",{
+            method:"POST",
+            headers:{
+              "Content-Type":"application/json",
+              "x-api-key":apiKey,
+              "anthropic-version":"2023-06-01",
+              "anthropic-dangerous-direct-browser-access":"true"
+            },
+            body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1000,system:sys,messages:[...history,{role:"user",content:msg}]})
+          });
+          const data=await res.json();
+          if(data.error){setMsgs(m=>[...m,{role:"assistant",text:"API error: "+data.error.message+" 💔"}]);}
+          else{setMsgs(m=>[...m,{role:"assistant",text:data.content?.find(b=>b.type==="text")?.text||"I'm here for you! 💕"}]);}
+        }catch{setMsgs(m=>[...m,{role:"assistant",text:"Oops! 💔 Check your connection and try again?"}]);}
+        setChatLoad(false);
+      };
+
+      if(!ready)return(<div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Georgia,serif"}}><div style={{textAlign:"center",color:C.textMuted}}><div style={{fontSize:40,marginBottom:10}}>🌸</div><div>Loading your planner...</div></div></div>);
+
+      const card={background:C.card,borderRadius:20,padding:18,marginBottom:16,border:`1px solid ${C.border}`,boxShadow:C.shadow,backdropFilter:"blur(8px)"};
+      const secTit={fontSize:10,fontWeight:700,letterSpacing:"0.2em",textTransform:"uppercase",color:C.textMuted,marginBottom:14};
+      const inp={flex:1,background:"rgba(255,240,245,0.85)",border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 13px",color:C.text,fontSize:13,outline:"none",fontFamily:"Georgia,serif"};
+      const addBt={background:`linear-gradient(135deg,${C.rose},${C.lilac})`,border:"none",borderRadius:12,padding:"10px 16px",color:"white",fontWeight:700,fontSize:14,cursor:"pointer",boxShadow:`0 3px 12px ${C.roseLight}`};
+      const chk=d=>({width:20,height:20,borderRadius:"50%",border:`2px solid ${d?C.rose:C.border}`,background:d?`linear-gradient(135deg,${C.rose},${C.lilac})`:"white",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"white",transition:"all 0.2s",boxShadow:d?`0 2px 8px ${C.roseLight}`:"none"});
+      const delBt={background:"none",border:"none",color:C.roseLight,cursor:"pointer",fontSize:16,padding:"0 2px"};
+      const progF=(p,col)=>{col=col||C.rose;return{height:"100%",width:`${p}%`,background:`linear-gradient(90deg,${col},${C.lilac})`,borderRadius:6,transition:"width 0.5s ease"};};
+      const hdr2={display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14};
+      const smBtn={background:`linear-gradient(135deg,${C.rose},${C.lilac})`,border:"none",borderRadius:20,padding:"5px 14px",color:"white",fontSize:12,fontWeight:700,cursor:"pointer"};
+      const ovl={position:"fixed",inset:0,background:"rgba(45,16,32,0.38)",backdropFilter:"blur(5px)",zIndex:50,display:"flex",alignItems:"flex-end",justifyContent:"center"};
+      const modal={background:"white",borderRadius:"22px 22px 0 0",padding:"22px 20px 36px",width:"100%",maxWidth:520,boxShadow:"0 -8px 40px rgba(214,51,132,0.18)",maxHeight:"85vh",overflowY:"auto"};
+      const mTit={fontSize:16,fontWeight:700,color:C.rose,marginBottom:16,textAlign:"center"};
+      const mInp={width:"100%",background:C.blush,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:13,outline:"none",marginBottom:10,boxSizing:"border-box",fontFamily:"Georgia,serif"};
+      const mSel={...mInp,appearance:"auto"};
+      const mActs={display:"flex",gap:10,marginTop:14};
+      const cnBtn={flex:1,background:"none",border:`1px solid ${C.border}`,borderRadius:12,padding:"10px",color:C.textMuted,cursor:"pointer",fontSize:13};
+      const svBtn={flex:2,background:`linear-gradient(135deg,${C.rose},${C.lilac})`,border:"none",borderRadius:12,padding:"10px",color:"white",fontWeight:700,fontSize:13,cursor:"pointer"};
+      const chip=(a,col)=>{col=col||C.rose;return{padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:700,border:`1.5px solid ${a?col:C.border}`,background:a?col+"18":"rgba(255,255,255,0.7)",color:a?col:C.textMuted,cursor:"pointer",whiteSpace:"nowrap",transition:"all 0.18s"};};
+
+      const done_study=study.filter(s=>s.done).length;
+      const study_mins=study.reduce((a,s)=>a+(s.done?s.duration:0),0);
+      const done_shop=shop.filter(s=>s.done).length;
+      const pct_shop=shop.length?Math.round((done_shop/shop.length)*100):0;
+      const todayKey=dateKey(0);
+      const todayDone=getTasksForKey(todayKey).filter(t=>t.done).length;
+      const todayTotal=getTasksForKey(todayKey).length;
+
+      const DAY_OFFSETS=[-1,0,1,2,3,4,5,6];
+
+      const renderToday=()=>(
+        <>
+          <div style={{background:"rgba(255,255,255,0.88)",borderRadius:20,padding:"16px 18px",marginBottom:14,border:`1px solid ${C.border}`,boxShadow:C.shadow,textAlign:"center"}}>
+            <div style={{fontSize:24,marginBottom:3}}>🌸</div>
+            <div style={{fontSize:19,fontWeight:700,color:C.rose,fontFamily:"Georgia,serif",marginBottom:1}}>
+              Good {time.getHours()<12?"Morning":time.getHours()<17?"Afternoon":"Evening"}!
+            </div>
+            <div style={{fontSize:11,color:C.textMuted}}>{today.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}</div>
+          </div>
+
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            {[[C.rose,`${todayDone}/${todayTotal}`,"Today ✓"],[C.lilac,done_study,"Study ✓"],[C.gold,`${study_mins}m`,"Studied"],[C.mint,`${done_shop}/${shop.length}`,"Shop"]].map(([col,val,lbl],i)=>(
+              <div key={i} style={{flex:1,background:"rgba(255,255,255,0.9)",border:`1px solid ${col}28`,borderTop:`3px solid ${col}`,borderRadius:14,padding:"10px 6px",textAlign:"center"}}>
+                <div style={{fontSize:16,fontWeight:700,color:col,lineHeight:1}}>{val}</div>
+                <div style={{fontSize:9,color:C.textMuted,marginTop:3,letterSpacing:"0.08em",textTransform:"uppercase"}}>{lbl}</div>
+              </div>
+            ))}
+          </div>
+
+          {DAY_OFFSETS.map(offset=>{
+            const key=dateKey(offset);
+            const d=offsetDate(offset);
+            const dayName=FULL_DAYS[d.getDay()];
+            const shortLabel=offsetLabel(offset);
+            const emoji=DAY_EMOJIS[d.getDay()];
+            const tasks=getTasksForKey(key);
+            const doneCount=tasks.filter(t=>t.done).length;
+            const isExpanded=!!expandedDays[key];
+            const isTodaySection=offset===0;
+            const isPast=offset<0;
+            const pct=tasks.length?Math.round((doneCount/tasks.length)*100):0;
+            const accentCol=isTodaySection?C.rose:isPast?C.textMuted:offset===1?C.lilac:C.roseMid;
+
+            return(
+              <div key={key} style={{marginBottom:12}}>
+                <div
+                  onClick={()=>setExpandedDays(e=>({...e,[key]:!e[key]}))}
+                  style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",background:isTodaySection?`linear-gradient(135deg,${C.rose}18,${C.lilac}10)`:"rgba(255,255,255,0.75)",borderRadius:isExpanded?"16px 16px 0 0":16,border:`1px solid ${isTodaySection?C.rose+"30":C.border}`,cursor:"pointer",transition:"all 0.2s",boxShadow:isTodaySection?C.shadowSm:"none"}}
+                >
+                  <span style={{fontSize:18}}>{emoji}</span>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",alignItems:"baseline",gap:6}}>
+                      <span style={{fontSize:13,fontWeight:700,color:isExpanded?accentCol:C.textMid}}>{shortLabel}</span>
+                      {offset!==0&&<span style={{fontSize:11,color:C.textMuted}}>{dayName} · {d.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>}
+                      {offset===0&&<span style={{fontSize:11,color:C.rose,fontWeight:600}}>· Today</span>}
+                    </div>
+                    {tasks.length>0&&(
+                      <div style={{marginTop:4,height:3,background:C.blush,borderRadius:4,overflow:"hidden",width:"100%"}}>
+                        <div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${accentCol},${C.lilac})`,borderRadius:4,transition:"width 0.4s ease"}}/>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    {tasks.length>0&&<span style={{fontSize:11,color:accentCol,fontWeight:700}}>{doneCount}/{tasks.length}</span>}
+                    <span style={{fontSize:12,color:C.textMuted,transition:"transform 0.2s",display:"inline-block",transform:isExpanded?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
+                  </div>
+                </div>
+
+                {isExpanded&&(
+                  <div style={{background:"rgba(255,255,255,0.82)",borderRadius:"0 0 16px 16px",border:`1px solid ${isTodaySection?C.rose+"25":C.border}`,borderTop:"none",padding:"8px 14px 12px",backdropFilter:"blur(8px)"}}>
+                    {tasks.length===0&&(
+                      <div style={{fontSize:12,color:C.textMuted,textAlign:"center",padding:"10px 0",fontStyle:"italic"}}>
+                        {isPast?"Nothing was planned 🌸":"Nothing planned yet — add something! 💕"}
+                      </div>
+                    )}
+                    {tasks.map(t=>(
+                      <div key={t.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+                        <div style={chk(t.done)} onClick={()=>toggleTaskForKey(key,t.id)}>{t.done?"✓":""}</div>
+                        <span style={{flex:1,fontSize:13,color:t.done?C.textMuted:C.text,textDecoration:t.done?"line-through":"none"}}>{t.text}</span>
+                        <button style={delBt} onClick={()=>deleteTaskForKey(key,t.id)}>×</button>
+                      </div>
+                    ))}
+                    {!isPast&&(
+                      <div style={{display:"flex",gap:7,marginTop:10}}>
+                        <input
+                          style={{...inp,fontSize:12,padding:"8px 11px"}}
+                          placeholder={`Add task for ${shortLabel}... 🌷`}
+                          value={newTaskInputs[key]||""}
+                          onChange={e=>setNewTaskInputs(p=>({...p,[key]:e.target.value}))}
+                          onKeyDown={e=>{if(e.key==="Enter"){addTaskForKey(key,newTaskInputs[key]||"");setNewTaskInputs(p=>({...p,[key]:""}));}}}
+                        />
+                        <button style={{...addBt,padding:"8px 13px",fontSize:13}} onClick={()=>{addTaskForKey(key,newTaskInputs[key]||"");setNewTaskInputs(p=>({...p,[key]:""}))}}>+</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          <div style={card}>
+            <div style={secTit}>Quick Capture 💭</div>
+            <div style={{display:"flex",gap:8}}>
+              <input style={inp} placeholder="What just popped in your head? ✨" value={newNote} onChange={e=>setNewNote(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter"&&newNote.trim()){const t=time.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});setNotes(a=>[{id:Date.now(),text:newNote,time:t},...a]);setNewNote("");}}}/>
+              <button style={addBt} onClick={()=>{if(newNote.trim()){const t=time.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});setNotes(a=>[{id:Date.now(),text:newNote,time:t},...a]);setNewNote("");}}}>+</button>
+            </div>
+            {notes.slice(0,2).map(n=>(
+              <div key={n.id} style={{display:"flex",gap:10,background:"rgba(255,255,255,0.9)",border:`1px solid ${C.border}`,borderRadius:12,padding:"9px 12px",marginTop:8}}>
+                <span style={{fontSize:10,color:C.textMuted,whiteSpace:"nowrap",marginTop:2,minWidth:48}}>{n.time}</span>
+                <span style={{fontSize:12,color:C.text,lineHeight:1.5,flex:1}}>{n.text}</span>
+              </div>
+            ))}
+            {notes.length>2&&<div style={{fontSize:11,color:C.textMuted,textAlign:"center",marginTop:6}}>+{notes.length-2} more in Notes tab 💕</div>}
+          </div>
+        </>
+      );
+
+      const renderStudy=()=>(
+        <>
+          <div style={card}>
+            <div style={hdr2}><div style={secTit}>Study Plan 📚</div><button style={smBtn} onClick={()=>setAddStudy(true)}>+ Add</button></div>
+            <div style={{height:6,background:C.blush,borderRadius:6,marginBottom:16,overflow:"hidden"}}><div style={progF(study.length?(done_study/study.length)*100:0,C.lilac)}/></div>
+            {study.map(it=>(
+              <div key={it.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
+                <div style={{...chk(it.done),border:`2px solid ${it.done?C.lilac:C.border}`,background:it.done?`linear-gradient(135deg,${C.lilac},${C.rose})`:"white"}} onClick={()=>{if(!it.done)pop();setStudy(a=>a.map(x=>x.id===it.id?{...x,done:!x.done}:x));}}>{it.done?"✓":""}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,color:it.done?C.textMuted:C.text,textDecoration:it.done?"line-through":"none"}}>{it.topic}</div>
+                  <div style={{marginTop:3,display:"flex",gap:6}}>
+                    <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:20,background:C.lilacLight,color:C.lilac}}>{it.subject}</span>
+                    <span style={{fontSize:11,color:C.textMuted}}>⏱ {it.duration}m</span>
+                  </div>
+                </div>
+                <button style={delBt} onClick={()=>setStudy(a=>a.filter(x=>x.id!==it.id))}>×</button>
+              </div>
+            ))}
+            <div style={{marginTop:14,padding:"11px 14px",background:C.lilacLight,borderRadius:12,textAlign:"center",fontSize:13,color:C.mauve}}>
+              {study_mins>0?`🎀 Amazing! ${study_mins} mins studied today.`:"Start studying — you've got this! 💪"}
+            </div>
+          </div>
+          <div style={card}><div style={secTit}>Focus Timer 🍅</div><FocusTimer/></div>
+          {addStudy&&(<div style={ovl} onClick={e=>e.target===e.currentTarget&&setAddStudy(false)}><div style={modal}>
+            <div style={mTit}>Add Study Session 📚</div>
+            <input style={mInp} placeholder="Subject" value={newStudy.subject} onChange={e=>setNewStudy(n=>({...n,subject:e.target.value}))}/>
+            <input style={mInp} placeholder="Topic or task" value={newStudy.topic} onChange={e=>setNewStudy(n=>({...n,topic:e.target.value}))}/>
+            <input style={mInp} type="number" placeholder="Duration (minutes)" value={newStudy.duration} onChange={e=>setNewStudy(n=>({...n,duration:+e.target.value}))}/>
+            <div style={mActs}><button style={cnBtn} onClick={()=>setAddStudy(false)}>Cancel</button><button style={svBtn} onClick={()=>{if(newStudy.subject&&newStudy.topic){setStudy(a=>[...a,{id:Date.now(),...newStudy,done:false}]);setNewStudy({subject:"",topic:"",duration:30});setAddStudy(false);}}}>Add ✨</button></div>
+          </div></div>)}
+        </>
+      );
+
+      const renderFuture=()=>(
+        <>
+          <div style={{background:"linear-gradient(135deg,rgba(243,229,245,0.88),rgba(252,228,236,0.8))",borderRadius:20,padding:"18px 20px",marginBottom:16,border:`1px solid ${C.border}`,boxShadow:C.shadow,textAlign:"center"}}>
+            <div style={{fontSize:26,marginBottom:4}}>🌙✨</div>
+            <div style={{fontSize:18,fontWeight:700,color:C.lilac,fontFamily:"Georgia,serif",marginBottom:2}}>Dream Board</div>
+            <div style={{fontSize:12,color:C.textMuted}}>Your future is bright & beautiful 💫</div>
+          </div>
+          <div style={card}>
+            <div style={hdr2}><div style={secTit}>My Dreams & Goals 🌸</div><button style={smBtn} onClick={()=>setAddDream(true)}>+ Add</button></div>
+            {future.map(it=>(
+              <div key={it.id} style={{background:`linear-gradient(135deg,${catColor(it.category)}10,transparent)`,border:`1px solid ${catColor(it.category)}28`,borderLeft:`4px solid ${catColor(it.category)}`,borderRadius:14,padding:"12px 14px",marginBottom:10}}>
+                <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:3}}>{it.dream}<span style={{display:"inline-block",fontSize:10,padding:"2px 7px",borderRadius:20,background:catColor(it.category)+"22",color:catColor(it.category),fontWeight:700,marginLeft:8}}>{it.category}</span></div>
+                {it.note&&<div style={{fontSize:12,color:C.textMuted}}>📝 {it.note}</div>}
+              </div>
+            ))}
+          </div>
+          <div style={card}>
+            <div style={secTit}>Manifestation Corner 💖</div>
+            <div style={{background:"linear-gradient(135deg,#fff0f5,#f3e5f5)",borderRadius:14,padding:16,fontStyle:"italic",fontSize:14,color:C.mauve,lineHeight:1.8,textAlign:"center"}}>
+              "She believed she could, so she did." 🌸<br/><span style={{fontSize:12,color:C.textMuted}}>Write your affirmations in Notes →</span>
+            </div>
+          </div>
+          {addDream&&(<div style={ovl} onClick={e=>e.target===e.currentTarget&&setAddDream(false)}><div style={modal}>
+            <div style={mTit}>Add a Dream ✨</div>
+            <input style={mInp} placeholder="Your dream or goal 🌸" value={newDream.dream} onChange={e=>setNewDream(n=>({...n,dream:e.target.value}))}/>
+            <select style={mSel} value={newDream.category} onChange={e=>setNewDream(n=>({...n,category:e.target.value}))}>
+              {[["travel","✈️ Travel"],["career","💼 Career"],["hobby","🎨 Hobby"],["health","💪 Health"],["finance","💰 Finance"],["other","🌸 Other"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+            </select>
+            <input style={mInp} placeholder="Notes or timeline..." value={newDream.note} onChange={e=>setNewDream(n=>({...n,note:e.target.value}))}/>
+            <div style={mActs}><button style={cnBtn} onClick={()=>setAddDream(false)}>Cancel</button><button style={svBtn} onClick={()=>{if(newDream.dream){setFuture(a=>[...a,{id:Date.now(),...newDream}]);setNewDream({dream:"",category:"other",note:""});setAddDream(false);}}}>Add 💖</button></div>
+          </div></div>)}
+        </>
+      );
+
+      const renderNotes=()=>(
+        <div style={card}>
+          <div style={secTit}>Brain Dump & Quick Notes 💭</div>
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            <input style={inp} placeholder="Write what's on your mind... ✨" value={newNote} onChange={e=>setNewNote(e.target.value)}
+              onKeyDown={e=>{if(e.key==="Enter"&&newNote.trim()){const t=time.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});setNotes(a=>[{id:Date.now(),text:newNote,time:t},...a]);setNewNote("");}}}/>
+            <button style={addBt} onClick={()=>{if(newNote.trim()){const t=time.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});setNotes(a=>[{id:Date.now(),text:newNote,time:t},...a]);setNewNote("");;}}}>+</button>
+          </div>
+          {notes.length===0&&<div style={{textAlign:"center",color:C.textMuted,fontSize:13,padding:20}}>Nothing yet — what's on your mind? 🌸</div>}
+          {notes.map(n=>(
+            <div key={n.id} style={{display:"flex",gap:10,alignItems:"flex-start",background:"rgba(255,255,255,0.9)",border:`1px solid ${C.border}`,borderRadius:14,padding:"11px 13px",marginBottom:8,boxShadow:C.shadowSm}}>
+              <span style={{fontSize:10,color:C.textMuted,whiteSpace:"nowrap",marginTop:2,minWidth:48}}>{n.time}</span>
+              <span style={{fontSize:13,color:C.text,lineHeight:1.5,flex:1}}>{n.text}</span>
+              <button style={delBt} onClick={()=>setNotes(a=>a.filter(x=>x.id!==n.id))}>×</button>
+            </div>
+          ))}
+        </div>
+      );
+
+      const filteredShop=shop.filter(x=>{if(!showDone&&x.done)return false;if(shopFilter!=="all"&&x.category!==shopFilter)return false;if(shopPrio!=="all"&&x.priority!==shopPrio)return false;if(shopSearch&&!x.name.toLowerCase().includes(shopSearch.toLowerCase()))return false;return true;});
+      const groupedShop={};filteredShop.forEach(it=>{if(!groupedShop[it.category])groupedShop[it.category]=[];groupedShop[it.category].push(it);});
+
+      const renderShop=()=>(
+        <>
+          <div style={{background:"rgba(255,255,255,0.88)",borderRadius:20,padding:"14px 16px",marginBottom:14,border:`1px solid ${C.border}`,boxShadow:C.shadow}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div style={{fontSize:15,fontWeight:700,color:C.rose}}>Shopping List 🛍️</div>
+              <div style={{fontSize:17,fontWeight:700,color:C.lilac}}>{done_shop}<span style={{fontSize:12,color:C.textMuted,fontWeight:400}}>/{shop.length}</span></div>
+            </div>
+            <div style={{height:6,background:C.blush,borderRadius:6,overflow:"hidden",marginBottom:6}}><div style={progF(pct_shop)}/></div>
+            <div style={{fontSize:11,color:C.textMuted,textAlign:"right",marginBottom:8}}>{pct_shop}% done {pct_shop===100?"🎉":pct_shop>50?"💅":"🌸"}</div>
+            <div style={{display:"flex",gap:8}}>
+              <input style={{...inp,fontSize:12,padding:"8px 11px"}} placeholder="Search... 🔍" value={shopSearch} onChange={e=>setShopSearch(e.target.value)}/>
+              <button style={{...addBt,padding:"8px 14px",fontSize:13}} onClick={()=>setAddShop(true)}>+ Add</button>
+            </div>
+            <div style={{display:"flex",gap:5,overflowX:"auto",scrollbarWidth:"none",marginTop:10}}>
+              <button style={chip(shopFilter==="all")} onClick={()=>setShopFilter("all")}>All ✨</button>
+              {Object.entries(SHOP_CATS).map(([k,v])=><button key={k} style={chip(shopFilter===k,v.color)} onClick={()=>setShopFilter(k)}>{v.emoji} {v.label.split(" ")[0]}</button>)}
+            </div>
+            <div style={{display:"flex",gap:5,overflowX:"auto",scrollbarWidth:"none",marginTop:6}}>
+              <button style={chip(shopPrio==="all")} onClick={()=>setShopPrio("all")}>All</button>
+              {Object.entries(SHOP_PRIO).map(([k,v])=><button key={k} style={chip(shopPrio===k,v.color)} onClick={()=>setShopPrio(k)}>{v.label}</button>)}
+            </div>
+          </div>
+          {Object.keys(groupedShop).length===0&&<div style={{textAlign:"center",color:C.textMuted,padding:40}}><div style={{fontSize:34,marginBottom:10}}>🛍️</div><div>Nothing here! Tap + Add 💕</div></div>}
+          {Object.entries(groupedShop).map(([cat,its])=>{const ci=SHOP_CATS[cat]||SHOP_CATS.other;return(
+            <div key={cat} style={{marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,paddingBottom:5,borderBottom:`2px solid ${ci.color}25`}}>
+                <span style={{fontSize:15}}>{ci.emoji}</span>
+                <span style={{fontSize:11,fontWeight:700,color:ci.color,letterSpacing:"0.12em",textTransform:"uppercase"}}>{ci.label}</span>
+                <span style={{fontSize:10,color:ci.color,background:ci.color+"18",borderRadius:20,padding:"2px 7px",fontWeight:700}}>{its.filter(x=>x.done).length}/{its.length}</span>
+              </div>
+              {its.map(it=>(
+                <div key={it.id} style={{background:it.done?"rgba(255,255,255,0.5)":C.card,borderRadius:14,padding:"11px 12px",marginBottom:7,border:`1px solid ${it.done?C.border:ci.color+"20"}`,borderLeft:`3.5px solid ${it.done?C.border:ci.color}`,display:"flex",alignItems:"flex-start",gap:10,opacity:it.done?0.6:1,transition:"all 0.2s",boxShadow:it.done?"none":C.shadowSm}}>
+                  <div style={{...chk(it.done),border:`2px solid ${it.done?ci.color:C.border}`,background:it.done?`linear-gradient(135deg,${ci.color},${C.lilac})`:"white"}} onClick={()=>{if(!it.done)pop();setShop(a=>a.map(x=>x.id===it.id?{...x,done:!x.done}:x));}}>{it.done?"✓":""}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:it.done?C.textMuted:C.text,textDecoration:it.done?"line-through":"none"}}>{it.name}{it.qty>0&&<span style={{fontWeight:400,color:C.textMuted,fontSize:12}}> ×{it.qty}</span>}</div>
+                    <div style={{fontSize:11,color:C.textMuted,marginTop:3,display:"flex",gap:6,flexWrap:"wrap"}}>
+                      <span style={{padding:"2px 7px",borderRadius:10,background:SHOP_PRIO[it.priority].color+"18",color:SHOP_PRIO[it.priority].color,fontWeight:700,fontSize:10}}>{SHOP_PRIO[it.priority].label}</span>
+                      {it.shop&&<span style={{padding:"2px 7px",borderRadius:10,background:C.mint+"22",color:C.mint,fontWeight:700,fontSize:10}}>🏪 {it.shop}</span>}
+                    </div>
+                    {it.note&&<div style={{fontSize:11,color:C.textMuted,fontStyle:"italic",marginTop:3}}>📝 {it.note}</div>}
+                  </div>
+                  <button style={delBt} onClick={()=>setShop(a=>a.filter(x=>x.id!==it.id))}>×</button>
+                </div>
+              ))}
+            </div>
+          );})}
+          <div style={{display:"flex",gap:10,marginBottom:20}}>
+            <button style={{flex:1,background:showDone?C.blush:"rgba(255,255,255,0.7)",border:`1px solid ${showDone?C.rose:C.border}`,borderRadius:20,padding:"8px",color:showDone?C.rose:C.textMuted,fontSize:12,fontWeight:700,cursor:"pointer"}} onClick={()=>setShowDone(s=>!s)}>{showDone?"✓ Showing done":"○ Hiding done"}</button>
+            <button style={{flex:1,background:"rgba(255,255,255,0.7)",border:`1px solid ${C.border}`,borderRadius:20,padding:"8px",color:C.textMuted,fontSize:12,cursor:"pointer"}} onClick={()=>{if(window.confirm("Clear all checked items?"))setShop(a=>a.filter(x=>!x.done));}}>🗑 Clear done</button>
+          </div>
+          {addShop&&(<div style={ovl} onClick={e=>e.target===e.currentTarget&&setAddShop(false)}><div style={modal}>
+            <div style={mTit}>Add to Your Haul 🛍️</div>
+            <input style={mInp} placeholder="Item name *" value={newShop.name} onChange={e=>setNewShop(n=>({...n,name:e.target.value}))} autoFocus/>
+            <div style={{display:"flex",gap:10}}>
+              <div style={{flex:1}}><div style={{fontSize:10,fontWeight:700,color:C.textMuted,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5}}>Category</div><select style={mSel} value={newShop.category} onChange={e=>setNewShop(n=>({...n,category:e.target.value}))}>{Object.entries(SHOP_CATS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div>
+              <div style={{flex:1}}><div style={{fontSize:10,fontWeight:700,color:C.textMuted,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5}}>Priority</div><select style={mSel} value={newShop.priority} onChange={e=>setNewShop(n=>({...n,priority:e.target.value}))}>{Object.entries(SHOP_PRIO).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <div style={{flex:1}}><div style={{fontSize:10,fontWeight:700,color:C.textMuted,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5,marginTop:10}}>Qty</div><input style={mInp} type="number" min="0" value={newShop.qty} onChange={e=>setNewShop(n=>({...n,qty:+e.target.value}))}/></div>
+              <div style={{flex:1}}><div style={{fontSize:10,fontWeight:700,color:C.textMuted,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:5,marginTop:10}}>Shop</div><select style={mSel} value={newShop.shop} onChange={e=>setNewShop(n=>({...n,shop:e.target.value}))}><option value="">— any —</option>{SHOPS.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+            </div>
+            <input style={mInp} placeholder="Note (size, color...)" value={newShop.note} onChange={e=>setNewShop(n=>({...n,note:e.target.value}))}/>
+            <div style={mActs}><button style={cnBtn} onClick={()=>setAddShop(false)}>Cancel</button><button style={svBtn} onClick={()=>{if(newShop.name.trim()){setShop(a=>[...a,{id:Date.now(),...newShop,done:false}]);setNewShop({name:"",category:"house",priority:"now",note:"",qty:1,shop:""});setAddShop(false);}}}>Add 💕</button></div>
+          </div></div>)}
+        </>
+      );
+
+      const renderCal=()=>{
+        const days=calDays(calDate.getFullYear(),calDate.getMonth());
+        const selKey=`${calDate.getFullYear()}-${String(calDate.getMonth()+1).padStart(2,"0")}-${String(selDay).padStart(2,"0")}`;
+        const selTasks=getTasksForKey(selKey);
+        return(<div style={card}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+            <button style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,color:C.rose,cursor:"pointer",padding:"4px 12px",fontSize:15}} onClick={()=>setCalDate(d=>new Date(d.getFullYear(),d.getMonth()-1,1))}>‹</button>
+            <span style={{fontWeight:700,fontSize:14,color:C.text}}>{MONTHS[calDate.getMonth()]} {calDate.getFullYear()} 🌸</span>
+            <button style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,color:C.rose,cursor:"pointer",padding:"4px 12px",fontSize:15}} onClick={()=>setCalDate(d=>new Date(d.getFullYear(),d.getMonth()+1,1))}>›</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+            {WDAYS.map(d=><div key={d} style={{textAlign:"center",fontSize:10,color:C.textMuted,fontWeight:700,paddingBottom:6,letterSpacing:"0.08em"}}>{d}</div>)}
+            {days.map((d,i)=>{
+              const dKey=d?`${calDate.getFullYear()}-${String(calDate.getMonth()+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`:"";
+              const hasTasks=d&&(dayTasks[dKey]||[]).length>0;
+              return(<div key={i} style={{aspectRatio:"1",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",borderRadius:"50%",fontSize:12,cursor:d?"pointer":"default",fontWeight:isToday(d)?700:400,background:isToday(d)?`linear-gradient(135deg,${C.rose},${C.lilac})`:d===selDay&&!isToday(d)?C.blush:"none",color:isToday(d)?"white":d===selDay&&!isToday(d)?C.rose:!d?"transparent":C.text,border:d===selDay&&!isToday(d)?`1.5px solid ${C.roseLight}`:"1.5px solid transparent",transition:"all 0.15s",position:"relative"}} onClick={()=>d&&setSelDay(d)}>
+                {d||""}
+                {hasTasks&&<div style={{width:4,height:4,borderRadius:"50%",background:isToday(d)?"rgba(255,255,255,0.8)":C.rose,position:"absolute",bottom:3}}/>}
+              </div>);
+            })}
+          </div>
+          <div style={{marginTop:14,background:C.blush,borderRadius:14,padding:"12px 14px"}}>
+            <div style={{fontSize:11,color:C.mauve,fontWeight:700,marginBottom:8,letterSpacing:"0.1em"}}>{MONTHS[calDate.getMonth()]} {selDay} 💕</div>
+            {selTasks.length===0&&<div style={{fontSize:12,color:C.textMuted,fontStyle:"italic"}}>No tasks for this day 🌸</div>}
+            {selTasks.map(t=>(
+              <div key={t.id} style={{fontSize:13,color:t.done?C.textMuted:C.text,padding:"5px 0",borderBottom:`1px dashed ${C.border}`,display:"flex",gap:8,alignItems:"center",textDecoration:t.done?"line-through":"none"}}>
+                <span style={{width:7,height:7,borderRadius:"50%",background:t.done?C.green:C.rose,flexShrink:0,display:"inline-block"}}/>
+                {t.text}
+              </div>
+            ))}
+          </div>
+        </div>);
+      };
+
+      const renderAI=()=>(
+        <div style={card}>
+          {!apiKey ? (
+            <div style={{textAlign:"center",padding:"10px 0"}}>
+              <div style={{fontSize:32,marginBottom:8}}>🔑</div>
+              <div style={{fontSize:15,fontWeight:700,color:C.rose,marginBottom:6}}>Set up AI Chat</div>
+              <div style={{fontSize:12,color:C.textMuted,marginBottom:16,lineHeight:1.7}}>
+                Enter your Anthropic API key to chat with your AI bestie 💕<br/>
+                Get one free at{" "}
+                <a href="https://console.anthropic.com" style={{color:C.rose}} target="_blank" rel="noopener noreferrer">console.anthropic.com</a>
+              </div>
+              <input
+                style={{...inp,width:"100%",marginBottom:10,fontSize:14,padding:"11px 13px"}}
+                type="password"
+                placeholder="sk-ant-..."
+                value={apiKeyInput}
+                onChange={e=>setApiKeyInput(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter"&&apiKeyInput.trim()){localStorage.setItem('pp-apikey',apiKeyInput.trim());setApiKey(apiKeyInput.trim());}}}
+              />
+              <button
+                style={{...addBt,width:"100%",padding:"11px"}}
+                onClick={()=>{if(apiKeyInput.trim()){localStorage.setItem('pp-apikey',apiKeyInput.trim());setApiKey(apiKeyInput.trim());}}}
+              >Save & Start Chatting ✨</button>
+              <div style={{fontSize:10,color:C.textMuted,marginTop:10}}>Your key is stored only on this device 🔒</div>
+            </div>
+          ) : (
+            <>
+              <div style={{textAlign:"center",marginBottom:14}}>
+                <div style={{fontSize:28}}>🤍</div>
+                <div style={{fontSize:12,color:C.textMuted,marginTop:2}}>Your AI bestie is here for you 💕</div>
+                <button style={{fontSize:10,color:C.textMuted,background:"none",border:"none",cursor:"pointer",marginTop:4,textDecoration:"underline"}} onClick={()=>{localStorage.removeItem('pp-apikey');setApiKey('');setApiKeyInput('');}}>Change API key</button>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:10,minHeight:200,maxHeight:340,overflowY:"auto",paddingBottom:4}}>
+                {msgs.map((m,i)=>(
+                  <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
+                    <div style={{maxWidth:"83%",background:m.role==="user"?`linear-gradient(135deg,${C.rose},${C.lilac})`:"rgba(255,255,255,0.95)",border:m.role==="user"?"none":`1px solid ${C.border}`,borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",padding:"10px 14px",fontSize:13,lineHeight:1.6,color:m.role==="user"?"white":C.text,boxShadow:m.role==="user"?`0 3px 12px ${C.roseLight}`:C.shadowSm,whiteSpace:"pre-wrap"}}>{m.text}</div>
+                  </div>
+                ))}
+                {chatLoad&&<div style={{display:"flex"}}><div style={{padding:"10px 14px",background:"rgba(255,255,255,0.95)",border:`1px solid ${C.border}`,borderRadius:"18px 18px 18px 4px",fontSize:13,color:C.textMuted,fontStyle:"italic"}}>typing... 💕</div></div>}
+                <div ref={chatEnd}/>
+              </div>
+              <div style={{display:"flex",gap:8,marginTop:10}}>
+                <input style={inp} placeholder="Chat with me... 🌸" value={chatInp} onChange={e=>setChatInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()} disabled={chatLoad}/>
+                <button style={addBt} onClick={sendChat} disabled={chatLoad}>↑</button>
+              </div>
+            </>
+          )}
+        </div>
+      );
+
+      return(
+        <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Palatino Linotype',Georgia,serif",position:"relative",overflow:"hidden"}}>
+          <div style={{position:"fixed",top:-60,right:-60,width:220,height:220,borderRadius:"50%",background:"rgba(214,51,132,0.10)",pointerEvents:"none",zIndex:0}}/>
+          <div style={{position:"fixed",top:220,left:-80,width:180,height:180,borderRadius:"50%",background:"rgba(199,125,222,0.09)",pointerEvents:"none",zIndex:0}}/>
+          <div style={{position:"fixed",bottom:80,right:-40,width:150,height:150,borderRadius:"50%",background:"rgba(214,51,132,0.07)",pointerEvents:"none",zIndex:0}}/>
+          {confetti.map(c=><div key={c.id} style={{position:"fixed",left:`${c.x}%`,top:`${c.y}%`,width:c.size,height:c.size,borderRadius:"50%",background:c.color,zIndex:100,pointerEvents:"none",animation:"cfpop 1.1s ease-out forwards"}}/>)}
+          <style>{`@keyframes cfpop{0%{transform:scale(0);opacity:1}60%{transform:scale(1.5);opacity:1}100%{transform:scale(0.4) translateY(50px);opacity:0}}::-webkit-scrollbar{display:none}`}</style>
+
+          <div style={{background:"rgba(255,255,255,0.80)",backdropFilter:"blur(14px)",borderBottom:`1px solid ${C.border}`,padding:"16px 20px 0",position:"sticky",top:0,zIndex:10,boxShadow:"0 2px 20px rgba(214,51,132,0.07)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+              <div>
+                <div style={{fontSize:17,fontWeight:700,color:C.rose,fontFamily:"Georgia,serif",lineHeight:1}}>My Planner 🌸</div>
+                <div style={{fontSize:10,color:C.textMuted,marginTop:2,letterSpacing:"0.14em",textTransform:"uppercase"}}>{today.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:22,color:C.rose,fontWeight:300,letterSpacing:"0.04em",lineHeight:1}}>{time.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}</div>
+                <div style={{fontSize:10,color:C.textMuted,marginTop:1}}>{String(time.getSeconds()).padStart(2,"0")}s</div>
+              </div>
+            </div>
+            <div style={{display:"flex",overflowX:"auto",scrollbarWidth:"none"}}>
+              {TABS.map(({id,label})=>(
+                <button key={id} style={{padding:"8px 12px",fontSize:11,fontWeight:tab===id?700:400,cursor:"pointer",border:"none",background:"none",color:tab===id?C.rose:C.textMuted,borderBottom:tab===id?`2.5px solid ${C.rose}`:"2.5px solid transparent",whiteSpace:"nowrap",transition:"all 0.2s",fontFamily:"Georgia,serif"}} onClick={()=>setTab(id)}>{label}</button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{padding:16,maxWidth:520,margin:"0 auto",position:"relative",zIndex:1}}>
+            {tab==="today"  && renderToday()}
+            {tab==="study"  && renderStudy()}
+            {tab==="future" && renderFuture()}
+            {tab==="notes"  && renderNotes()}
+            {tab==="shop"   && renderShop()}
+            {tab==="cal"    && renderCal()}
+            {tab==="ai"     && renderAI()}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
